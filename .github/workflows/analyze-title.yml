@@ -1,0 +1,90 @@
+
+name: Analyze TITLE.NKP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download repository files
+        uses: actions/checkout@v4
+
+      - name: Analyze TITLE.NKP
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import re
+
+          path = Path("TITLE.NKP")
+
+          if not path.is_file():
+              raise SystemExit("ERROR: TITLE.NKP not found")
+
+          data = path.read_bytes()
+
+          lines = [
+              "NANA-PS3 - TITLE.NKP ANALYSIS",
+              "=" * 40,
+              f"File size: {len(data)} bytes",
+              f"MD5: {hashlib.md5(data).hexdigest()}",
+              f"SHA256: {hashlib.sha256(data).hexdigest()}",
+              "",
+              "FIRST 64 BYTES:",
+              data[:64].hex(" ").upper(),
+              "",
+              "NKT SIGNATURE MATCHES:",
+          ]
+
+          signature = bytes.fromhex("4E 4B 54 1A")
+          offsets = []
+          pos = 0
+
+          while True:
+              pos = data.find(signature, pos)
+              if pos < 0:
+                  break
+              offsets.append(pos)
+              pos += 1
+
+          if offsets:
+              for offset in offsets:
+                  lines.append(f"Offset: 0x{offset:08X}")
+                  start = max(0, offset - 8)
+                  end = min(len(data), offset + 40)
+                  lines.append(data[start:end].hex(" ").upper())
+          else:
+              lines.append("No matches found.")
+
+          lines += ["", "PRINTABLE STRINGS:"]
+
+          strings = re.findall(rb"[ -~]{4,}", data)
+
+          for item in strings[:100]:
+              lines.append(item.decode("ascii", errors="replace")[:100])
+
+          lines += [
+              "",
+              f"Total NKT signature matches: {len(offsets)}",
+              f"Total printable strings found: {len(strings)}"
+          ]
+
+          Path("title-report.txt").write_text(
+              "\n".join(lines), encoding="utf-8"
+          )
+
+          print("\n".join(lines))
+
+          PY
+
+      - name: Save analysis report
+        uses: actions/upload-artifact@v4
+        with:
+          name: TITLE-NKP-Analysis
+          path: title-report.txt
